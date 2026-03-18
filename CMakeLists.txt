@@ -13,18 +13,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
 
-target_include_directories(${PROJECT_NAME} PRIVATE src)
+# Common interface library
+add_library(common INTERFACE)
 
-# Disable C++ module scanning to prevent clang-scan-deps from failing in Nix
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 
-# LDD linker
-target_link_options(${PROJECT_NAME} PRIVATE -fuse-ld=lld)
+# Executables
+add_executable(example_test examples/test.cpp)
+target_link_libraries(example_test PRIVATE common)
 
-# Warnings
-target_compile_options(${PROJECT_NAME} PRIVATE
+add_executable(example_simple examples/simple.cpp)
+target_link_libraries(example_simple PRIVATE common)
+
+# Common interface library options
+target_include_directories(common INTERFACE include)
+
+target_compile_options(common INTERFACE
   -Wall
   -Wextra
   -Wpedantic
@@ -44,6 +48,14 @@ target_compile_options(${PROJECT_NAME} PRIVATE
   -Wimplicit-fallthrough
   -Wmisleading-indentation
 )
+
+
+
+# Disable C++ module scanning to prevent clang-scan-deps from failing in Nix
+set_target_properties(common PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+
+# LDD linker
+target_link_options(common INTERFACE -fuse-ld=lld)
 
 # Sanitizer options
 option(ENABLE_ASAN  "Enable AddressSanitizer"           OFF)
@@ -69,39 +81,39 @@ endif()
 
 if(ENABLE_ASAN)
   message(STATUS "AddressSanitizer enabled")
-  target_compile_options(${PROJECT_NAME} PRIVATE
+target_compile_options(common INTERFACE
     -fsanitize=address
     -fno-omit-frame-pointer
     -fno-optimize-sibling-calls
   )
-  target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=address)
+  target_link_options(common INTERFACE -fsanitize=address)
 endif()
 
 if(ENABLE_UBSAN)
   message(STATUS "UndefinedBehaviorSanitizer enabled")
-  target_compile_options(${PROJECT_NAME} PRIVATE
+  target_compile_options(common INTERFACE 
     -fsanitize=undefined
     -fno-omit-frame-pointer
   )
-  target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=undefined)
+  target_link_options(common INTERFACE -fsanitize=undefined)
 endif()
 
 if(ENABLE_MSAN)
   message(STATUS "MemorySanitizer enabled")
-  target_compile_options(${PROJECT_NAME} PRIVATE
+  target_compile_options(common INTERFACE 
     -fsanitize=memory
     -fsanitize-memory-track-origins=2
     -fno-omit-frame-pointer
     -fno-optimize-sibling-calls
   )
-  target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=memory)
+  target_link_options(common INTERFACE -fsanitize=memory)
 endif()
 
 if(ENABLE_TSAN)
   message(STATUS "ThreadSanitizer enabled")
-  target_compile_options(${PROJECT_NAME} PRIVATE
+  target_compile_options(common INTERFACE 
     -fsanitize=thread
     -fno-omit-frame-pointer
   )
-  target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=thread)
+  target_link_options(common INTERFACE -fsanitize=thread)
 endif()

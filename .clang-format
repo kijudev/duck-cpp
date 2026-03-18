@@ -1,13 +1,10 @@
 ---
-BasedOnStyle:  Google
-Standard:      c++23
-TabWidth:      4
-IndentWidth:   4
-ColumnLimit:   92
-
-SortIncludes:        true
-IncludeBlocks:       Regroup
-
+BasedOnStyle: Google
+TabWidth: 4
+IndentWidth: 4
+ColumnLimit: 92
+SortIncludes: true
+IncludeBlocks: Regroup
 AlignArrayOfStructures: Left
 AlignConsecutiveAssignments:
   Enabled: true
@@ -19,7 +16,6 @@ AlignConsecutiveMacros:
   Enabled: true
 AlignConsecutiveShortCaseStatements:
   Enabled: true
-
 SpaceBeforeCpp11BracedList: true
-Cpp11BracedListStyle:       false
+Cpp11BracedListStyle: false
 ---
