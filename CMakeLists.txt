@@ -19,11 +19,8 @@ add_library(common INTERFACE)
 
 
 # Executables
-add_executable(example_test examples/test.cpp)
+add_executable(example_test examples/allocator.cpp)
 target_link_libraries(example_test PRIVATE common)
-
-add_executable(example_simple examples/simple.cpp)
-target_link_libraries(example_simple PRIVATE common)
 
 # Common interface library options
 target_include_directories(common INTERFACE include)
