@@ -103,7 +103,7 @@ class AllocatorI {
      * @param alignment Alignment in bytes. Must be a power of two.
      * @return Pointer to allocated memory, or `nullptr` on failure.
      */
-        [[nodiscard]] void* try_allocate(USize size, USize alignment) noexcept {
+    [[nodiscard]] void* try_allocate(USize size, USize alignment) noexcept {
         assert(size != 0);
         assert(impl::is_valid_alignment(alignment));
 
@@ -137,8 +137,8 @@ class AllocatorI {
      * @param alignment Alignment in bytes. Must be a power of two.
      * @return Pointer to resized memory (may move), or `nullptr` on failure.
      */
-        [[nodiscard]] void* try_reallocate(void* pointer, USize old_size, USize new_size,
-                                           USize alignment) noexcept {
+    [[nodiscard]] void* try_reallocate(void* pointer, USize old_size, USize new_size,
+                                       USize alignment) noexcept {
         assert(pointer);
         assert(old_size != 0);
         assert(new_size != 0);
@@ -182,7 +182,7 @@ class AllocatorI {
      * @param size Size of the allocation in bytes (non-zero when pointer is valid).
      * @param alignment Alignment in bytes. Must be a power of two.
      */
-        void deallocate(void* pointer, USize size, USize alignment) noexcept {
+    void deallocate(void* pointer, USize size, USize alignment) noexcept {
         if (!pointer) return;
 
         assert(size != 0);
@@ -206,7 +206,7 @@ class AllocatorI {
      * @param alignment Alignment in bytes (power of two).
      * @return Pointer on success, or `nullptr` on failure.
      */
-        virtual void* impl_try_allocate(USize size, USize alignment) noexcept = 0;
+    virtual void* impl_try_allocate(USize size, USize alignment) noexcept = 0;
 
     /**
      * @brief Implementation hook for reallocation attempts.
@@ -214,8 +214,8 @@ class AllocatorI {
      * @details Default behavior allocates a new block, copies the data, and
      * deallocates the old block.
      */
-        virtual void* impl_try_reallocate(void* pointer, USize old_size, USize new_size,
-                                          USize alignment) noexcept {
+    virtual void* impl_try_reallocate(void* pointer, USize old_size, USize new_size,
+                                      USize alignment) noexcept {
         void* new_pointer = try_allocate(new_size, alignment);
         if (!new_pointer) return nullptr;
 
@@ -236,7 +236,7 @@ class AllocatorI {
      * @param size Size in bytes (non-zero).
      * @param alignment Alignment in bytes (power of two).
      */
-        virtual void impl_deallocate(void* pointer, USize size, USize alignment) noexcept = 0;
+    virtual void impl_deallocate(void* pointer, USize size, USize alignment) noexcept = 0;
 };
 
 /// @brief Allocator that forwards to global `operator new/delete`.

@@ -4,7 +4,7 @@
 #include <cstdint>
 
 /// @brief Unsigned 8-bit integer.
-using U8  = std::uint8_t;
+using U8 = std::uint8_t;
 
 /// @brief Unsigned 16-bit integer.
 using U16 = std::uint16_t;
@@ -16,7 +16,7 @@ using U32 = std::uint32_t;
 using U64 = std::uint64_t;
 
 /// @brief Signed 8-bit integer.
-using S8  = std::int8_t;
+using S8 = std::int8_t;
 
 /// @brief Signed 16-bit integer.
 using S16 = std::int16_t;

@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 4.0)
 
 project(
-  MyProject
+  Duck
   VERSION 0.1.0
-  DESCRIPTION "A minimal C++23 project"
+  DESCRIPTION "Duck is like F*ck but it is a bird"
   LANGUAGES C CXX
 )
 
@@ -54,6 +54,19 @@ set_target_properties(common PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 # LDD linker
 target_link_options(common INTERFACE -fuse-ld=lld)
 
+# Doxygen docs
+option(BUILD_DOCS "Build Doxygen documentation" ON)
+find_package(Doxygen)
+if(BUILD_DOCS AND DOXYGEN_FOUND)
+  set(DOXYGEN_IN ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile)
+  add_custom_target(docs
+    COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYGEN_IN}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Generating API documentation with Doxygen"
+    VERBATIM
+  )
+endif()
+
 # Sanitizer options
 option(ENABLE_ASAN  "Enable AddressSanitizer"           OFF)
 option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
@@ -88,7 +101,7 @@ endif()
 
 if(ENABLE_UBSAN)
   message(STATUS "UndefinedBehaviorSanitizer enabled")
-  target_compile_options(common INTERFACE 
+  target_compile_options(common INTERFACE
     -fsanitize=undefined
     -fno-omit-frame-pointer
   )
@@ -97,7 +110,7 @@ endif()
 
 if(ENABLE_MSAN)
   message(STATUS "MemorySanitizer enabled")
-  target_compile_options(common INTERFACE 
+  target_compile_options(common INTERFACE
     -fsanitize=memory
     -fsanitize-memory-track-origins=2
     -fno-omit-frame-pointer
@@ -108,7 +121,7 @@ endif()
 
 if(ENABLE_TSAN)
   message(STATUS "ThreadSanitizer enabled")
-  target_compile_options(common INTERFACE 
+  target_compile_options(common INTERFACE
     -fsanitize=thread
     -fno-omit-frame-pointer
   )

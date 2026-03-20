@@ -29,6 +29,8 @@
               pkgs.pkg-config
               pkgs.neocmakelsp
               pkgs.cmake-format
+              pkgs.doxygen
+              pkgs.graphviz
 
               pkgs.doctest
               pkgs.nanobench

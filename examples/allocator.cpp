@@ -1,6 +1,6 @@
-#include "allocator.hpp"
-
 #include <print>
+
+#include "allocator.hpp"
 
 int main() {
     duck::AllocatorI* heap_alloc = duck::get_default_allocator();
