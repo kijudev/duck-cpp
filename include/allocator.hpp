@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 
@@ -261,10 +262,53 @@ class NewDeleteAllocator final : public AllocatorI {
     }
 };
 
+/// @brief Allocator that forwards to `malloc`/`free` with `realloc` optimization.
+class MallocAllocator final : public AllocatorI {
+   protected:
+    /// @brief Allocate via `malloc` or `aligned_alloc` for over-aligned requests.
+    void* impl_try_allocate(USize size, USize alignment) noexcept override {
+        if (alignment <= alignof(std::max_align_t)) [[likely]] {
+            return std::malloc(size);
+        }
+
+        USize normalized  = impl::normalize_alignment(alignment);
+        USize aligned_size = (size + normalized - 1) & ~(normalized - 1);
+
+        return std::aligned_alloc(normalized, aligned_size);
+    }
+
+    /// @brief Reallocate via `realloc` when alignment allows it.
+    void* impl_try_reallocate(void* pointer, USize old_size, USize new_size,
+                              USize alignment) noexcept override {
+        if (alignment <= alignof(std::max_align_t)) [[likely]] {
+            (void)old_size;
+            return std::realloc(pointer, new_size);
+        }
+
+        return AllocatorI::impl_try_reallocate(pointer, old_size, new_size, alignment);
+    }
+
+    /// @brief Deallocate via `free`.
+    void impl_deallocate(void* pointer, USize size, USize alignment) noexcept override {
+        (void)size;
+        (void)alignment;
+        std::free(pointer);
+    }
+};
+
 /// @brief Returns the singleton instance of the `NewDeleteAllocator`.
 inline AllocatorI* get_new_delete_allocator() noexcept {
     static AllocatorI* pointer = [] {
         return static_cast<AllocatorI*>(new NewDeleteAllocator {});
+    }();
+
+    return pointer;
+}
+
+/// @brief Returns the singleton instance of the `MallocAllocator`.
+inline AllocatorI* get_new_malloc_allocator() noexcept {
+    static AllocatorI* pointer = [] {
+        return static_cast<AllocatorI*>(new MallocAllocator {});
     }();
 
     return pointer;
