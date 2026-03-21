@@ -22,6 +22,11 @@ add_library(common INTERFACE)
 add_executable(example_test examples/allocator.cpp)
 target_link_libraries(example_test PRIVATE common)
 
+# Tests
+find_package(doctest CONFIG REQUIRED)
+add_executable(test_allocator tests/allocator.cpp)
+target_link_libraries(test_allocator PRIVATE common doctest::doctest)
+
 # Common interface library options
 target_include_directories(common INTERFACE include)
 

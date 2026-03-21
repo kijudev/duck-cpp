@@ -2,4 +2,4 @@ CompileFlags:
   Add:
     - -std=c++23
     - -stdlib=libc++
-  CompilationDatabase: build/debug
+CompilationDatabase: build/debug
