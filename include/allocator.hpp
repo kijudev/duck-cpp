@@ -33,12 +33,16 @@ namespace duck {
 
 /// @brief Result requested by an out-of-memory handler.
 enum class OOMHandlerAction : U8 { Fail, Retry };
+
 /**
  * @brief Function pointer signature for OOM handlers.
  *
- * @param size Requested allocation size in bytes.
- * @param alignment Requested alignment in bytes (power of two).
+ * @param size Allocation size in bytes.
+ * @param alignment Alignment in bytes.
  * @return `Retry` to attempt allocation again, `Fail` to stop.
+ *
+ * @pre `size` is non-zero.
+ * @pre `alignment` is a power of two.
  */
 using OOMHandler = OOMHandlerAction (*)(USize size, USize alignment) noexcept;
 
@@ -100,9 +104,12 @@ class AllocatorI {
     /**
      * @brief Attempts to allocate a block of memory.
      *
-     * @param size Size in bytes. Must be non-zero.
-     * @param alignment Alignment in bytes. Must be a power of two.
+     * @param size Size in bytes.
+     * @param alignment Alignment in bytes.
      * @return Pointer to allocated memory, or `nullptr` on failure.
+     *
+     * @pre `size` is non-zero.
+     * @pre `alignment` is a power of two.
      */
     [[nodiscard]] void* try_allocate(USize size, USize alignment) noexcept {
         assert(size != 0);
@@ -123,7 +130,7 @@ class AllocatorI {
             OOMHandler allocation_error_handler = get_oom_handler();
 
             if (allocation_error_handler == nullptr) return nullptr;
-            if (attempt >= max_retries) return nullptr;
+            if (attempt > max_retries) return nullptr;
             if (allocation_error_handler(size, alignment) != OOMHandlerAction::Retry)
                 return nullptr;
         }
@@ -132,11 +139,16 @@ class AllocatorI {
     /**
      * @brief Attempts to resize an existing allocation.
      *
-     * @param pointer Original allocation (non-null).
-     * @param old_size Size of the original allocation in bytes (non-zero).
-     * @param new_size Requested new size in bytes (non-zero).
-     * @param alignment Alignment in bytes. Must be a power of two.
+     * @param pointer Original allocation.
+     * @param old_size Size of the original allocation in bytes.
+     * @param new_size Requested new size in bytes.
+     * @param alignment Alignment in bytes.
      * @return Pointer to resized memory (may move), or `nullptr` on failure.
+     *
+     * @pre `pointer` is non-null.
+     * @pre `old_size` is non-zero.
+     * @pre `new_size` is non-zero.
+     * @pre `alignment` is a power of two.
      */
     [[nodiscard]] void* try_reallocate(void* pointer, USize old_size, USize new_size,
                                        USize alignment) noexcept {
@@ -170,7 +182,7 @@ class AllocatorI {
             OOMHandler allocation_error_handler = get_oom_handler();
 
             if (allocation_error_handler == nullptr) return nullptr;
-            if (attempt >= max_retries) return nullptr;
+            if (attempt > max_retries) return nullptr;
             if (allocation_error_handler(new_size, alignment) != OOMHandlerAction::Retry)
                 return nullptr;
         }
@@ -179,9 +191,12 @@ class AllocatorI {
     /**
      * @brief Deallocates a previously allocated block.
      *
-     * @param pointer Allocation to free (may be `nullptr`).
-     * @param size Size of the allocation in bytes (non-zero when pointer is valid).
-     * @param alignment Alignment in bytes. Must be a power of two.
+     * @param pointer Allocation to free.
+     * @param size Size of the allocation in bytes.
+     * @param alignment Alignment in bytes.
+     *
+     * @pre If `pointer` is non-null, `size` is non-zero.
+     * @pre If `pointer` is non-null, `alignment` is a power of two.
      */
     void deallocate(void* pointer, USize size, USize alignment) noexcept {
         if (!pointer) return;
@@ -203,21 +218,34 @@ class AllocatorI {
     /**
      * @brief Implementation hook for allocation attempts.
      *
-     * @param size Size in bytes. Guaranteed non-zero by the public API.
-     * @param alignment Alignment in bytes (power of two).
+     * @param size Size in bytes.
+     * @param alignment Alignment in bytes.
      * @return Pointer on success, or `nullptr` on failure.
+     *
+     * @pre `size` is non-zero.
+     * @pre `alignment` is a power of two.
      */
     virtual void* impl_try_allocate(USize size, USize alignment) noexcept = 0;
 
     /**
      * @brief Implementation hook for reallocation attempts.
      *
+     * @param pointer Original allocation.
+     * @param old_size Size of the original allocation in bytes.
+     * @param new_size Requested new size in bytes.
+     * @param alignment Alignment in bytes.
+     *
+     * @pre `pointer` is non-null.
+     * @pre `old_size` is non-zero.
+     * @pre `new_size` is non-zero.
+     * @pre `alignment` is a power of two.
+     *
      * @details Default behavior allocates a new block, copies the data, and
      * deallocates the old block.
      */
     virtual void* impl_try_reallocate(void* pointer, USize old_size, USize new_size,
                                       USize alignment) noexcept {
-        void* new_pointer = try_allocate(new_size, alignment);
+        void* new_pointer = impl_try_allocate(new_size, alignment);
         if (!new_pointer) return nullptr;
 
         Byte* dst = static_cast<Byte*>(new_pointer);
@@ -233,9 +261,13 @@ class AllocatorI {
     /**
      * @brief Implementation hook for deallocation.
      *
-     * @param pointer Allocation to free (non-null).
-     * @param size Size in bytes (non-zero).
-     * @param alignment Alignment in bytes (power of two).
+     * @param pointer Allocation to free.
+     * @param size Size in bytes.
+     * @param alignment Alignment in bytes.
+     *
+     * @pre `pointer` is non-null.
+     * @pre `size` is non-zero.
+     * @pre `alignment` is a power of two.
      */
     virtual void impl_deallocate(void* pointer, USize size, USize alignment) noexcept = 0;
 };
@@ -271,8 +303,8 @@ class MallocAllocator final : public AllocatorI {
             return std::malloc(size);
         }
 
-        USize normalized  = impl::normalize_alignment(alignment);
-        USize aligned_size = (size + normalized - 1) & ~(normalized - 1);
+        USize normalized   = impl::normalize_alignment(alignment);
+        USize aligned_size = impl::round_up_to_multiple_of(size, alignment);
 
         return std::aligned_alloc(normalized, aligned_size);
     }
@@ -306,7 +338,7 @@ inline AllocatorI* get_new_delete_allocator() noexcept {
 }
 
 /// @brief Returns the singleton instance of the `MallocAllocator`.
-inline AllocatorI* get_new_malloc_allocator() noexcept {
+inline AllocatorI* get_malloc_allocator() noexcept {
     static AllocatorI* pointer = [] {
         return static_cast<AllocatorI*>(new MallocAllocator {});
     }();
@@ -330,7 +362,9 @@ inline AllocatorI* get_default_allocator() noexcept {
 /**
  * @brief Installs a new global default allocator and returns the previous one.
  *
- * @param allocator New allocator (must be non-null).
+ * @param allocator New allocator.
+ *
+ * @pre `allocator` is non-null.
  */
 inline AllocatorI* set_default_allocator(AllocatorI* allocator) noexcept {
     assert(allocator);
