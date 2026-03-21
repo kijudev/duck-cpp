@@ -111,7 +111,8 @@ class AllocatorI {
      * @pre `size` is non-zero.
      * @pre `alignment` is a power of two.
      */
-    [[nodiscard]] void* try_allocate(USize size, USize alignment) noexcept {
+    [[nodiscard("Discarding the pointer leads to memory leaks!")]] void* try_allocate(
+        USize size, USize alignment) noexcept {
         assert(size != 0);
         assert(impl::is_valid_alignment(alignment));
 
@@ -150,8 +151,8 @@ class AllocatorI {
      * @pre `new_size` is non-zero.
      * @pre `alignment` is a power of two.
      */
-    [[nodiscard]] void* try_reallocate(void* pointer, USize old_size, USize new_size,
-                                       USize alignment) noexcept {
+    [[nodiscard("Discarding the pointer leads to memory leaks!")]] void* try_reallocate(
+        void* pointer, USize old_size, USize new_size, USize alignment) noexcept {
         assert(pointer);
         assert(old_size != 0);
         assert(new_size != 0);
