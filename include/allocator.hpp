@@ -127,6 +127,12 @@ class Allocator {
         do_deallocate(ptr, sz, alignment);
     }
 
+    virtual OwnershipResult debug_owns(void* /*ptr*/) const noexcept {
+        return OwnershipResult::Unknown;
+    };
+
+    virtual const char* debug_name() const noexcept { return "UnnamedAllocator"; };
+
    protected:
     virtual void* do_try_allocate(USize sz, USize alignment) noexcept = 0;
 
@@ -146,12 +152,6 @@ class Allocator {
     }
 
     virtual void do_deallocate(void* ptr, USize sz, USize alignment) noexcept = 0;
-
-    virtual OwnershipResult debug_owns(void* /*ptr*/) const noexcept {
-        return OwnershipResult::Unknown;
-    };
-
-    virtual const char* debug_name() const noexcept { return "UnnamedAllocator"; };
 };
 
 class NewDeleteAllocator final : public Allocator {

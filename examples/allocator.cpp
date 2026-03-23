@@ -1,14 +1,13 @@
 #include <print>
 
-#include "allocator.hpp"
+#include "../include/allocator.hpp"
 
 int main() {
-    duck::Allocator* heap_alloc = duck::get_default_allocator();
+    duck::Allocator* alloc = duck::get_new_delete_allocator();
+    int* ptr               = static_cast<int*>(alloc->allocate(sizeof(int), alignof(int)));
 
-    int* a = static_cast<int*>(heap_alloc->try_allocate(sizeof(int), alignof(int)));
+    *ptr = 42;
+    std::println("value: {}", *ptr);
 
-    *a = 42;
-    std::println("a: {}", *a);
-
-    heap_alloc->deallocate(a, sizeof(int), alignof(int));
+    alloc->deallocate(ptr, sizeof(int), alignof(int));
 }
