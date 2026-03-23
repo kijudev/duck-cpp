@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include <utility>
 
+#include "allocator.hpp"
 #include "mem.hpp"
 
 namespace duck {
@@ -77,6 +78,10 @@ class DynamicArray {
         return darr;
     }
 
+    [[nodiscard]] static DynamicArray with_capacity(USize capacity) noexcept {
+        return with_capacity(get_default_allocator(), capacity);
+    }
+
     [[nodiscard]] static DynamicArray with_capacity(Allocator* allocator,
                                                     USize capacity) noexcept {
         DynamicArray darr;
@@ -84,6 +89,10 @@ class DynamicArray {
         darr.do_reserve(capacity);
 
         return darr;
+    }
+
+    [[nodiscard]] static DynamicArray with_size(USize size) noexcept {
+        return with_size(get_default_allocator(), size);
     }
 
     [[nodiscard]] static DynamicArray with_size(Allocator* allocator, USize size) noexcept {
@@ -97,6 +106,10 @@ class DynamicArray {
         return arr;
     }
 
+    [[nodiscard]] static DynamicArray filled_with(USize size) noexcept {
+        return filled_with(size);
+    }
+
     [[nodiscard]] static DynamicArray filled_with(Allocator* allocator, USize size,
                                                   const T& fill) noexcept {
         static_assert(std::is_nothrow_copy_constructible_v<T>);
@@ -108,21 +121,6 @@ class DynamicArray {
         for (USize i = 0; i < size; ++i) {
             std::construct_at(arr.m_storage.data + i, fill);
         }
-
-        arr.m_storage.size = size;
-
-        return arr;
-    }
-
-    [[nodiscard]] static DynamicArray from_range(Allocator* allocator, const T* src,
-                                                 USize size) noexcept {
-        static_assert(std::is_nothrow_copy_constructible_v<T>);
-
-        DynamicArray arr;
-        arr.m_storage.allocator = allocator;
-        arr.do_reserve(size);
-
-        mem::copy_init_range(src, size, arr.m_storage.data);
 
         arr.m_storage.size = size;
 
@@ -276,29 +274,23 @@ class DynamicArray {
         m_storage.size = 0;
     }
 
-    void resize_default(USize new_size) noexcept {
-        if (new_size > m_storage.size) {
-            do_grow_if_needed(new_size);
-            mem::default_init_range(m_storage.data + m_storage.size,
-                                    new_size - m_storage.size);
-        } else if (new_size < m_storage.size) {
-            mem::destroy_range(m_storage.data + new_size, m_storage.size - new_size);
-        }
+    void shrink(USize new_size) noexcept {
+        mem::destroy_range(m_storage.data + new_size, m_storage.size - new_size);
+        m_storage.size = new_size;
+    }
+
+    void grow_default(USize new_size) noexcept {
+        do_grow_if_needed(new_size);
+        mem::default_init_range(m_storage.data + m_storage.size, new_size - m_storage.size);
 
         m_storage.size = new_size;
     }
 
-    void resize_with(USize new_size, const T& fill) noexcept {
-        static_assert(std::is_nothrow_copy_constructible_v<T>);
+    void grow_with(USize new_size, const T& fill) noexcept {
+        do_grow_if_needed(new_size);
 
-        if (new_size > m_storage.size) {
-            do_grow_if_needed(new_size);
-
-            for (USize i = m_storage.size; i < new_size; ++i) {
-                std::construct_at(m_storage.data + i, fill);
-            }
-        } else if (new_size < m_storage.size) {
-            mem::destroy_range(m_storage.data + new_size, m_storage.size - new_size);
+        for (USize i = m_storage.size; i < new_size; ++i) {
+            std::construct_at(m_storage.data + i, fill);
         }
 
         m_storage.size = new_size;

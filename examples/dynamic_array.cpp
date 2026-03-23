@@ -1,11 +1,11 @@
-#include <print>
-
 #include "../include/dynamic_array.hpp"
 
-int main() {
-    duck::DynamicArray<U32> numbers = { 1, 2, 3, 4 };
+#include <print>
 
-    for (U32 n : numbers) {
+int main() {
+    duck::DynamicArray<U32> nums = { 1, 2, 3, 4 };
+
+    for (U32 n : nums) {
         std::println("n -> {}", n);
     }
 
