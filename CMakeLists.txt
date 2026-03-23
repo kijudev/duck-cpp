@@ -19,8 +19,13 @@ add_library(common INTERFACE)
 
 
 # Executables
-add_executable(example_test examples/allocator.cpp)
-target_link_libraries(example_test PRIVATE common)
+add_executable(example_allocator examples/allocator.cpp)
+target_include_directories(example_allocator PUBLIC include)
+target_link_libraries(example_allocator PRIVATE common)
+
+add_executable(example_dynamic_array examples/dynamic_array.cpp)
+target_include_directories(example_dynamic_array PUBLIC include)
+target_link_libraries(example_dynamic_array PRIVATE common)
 
 # Tests
 find_package(doctest CONFIG REQUIRED)

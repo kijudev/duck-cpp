@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
+#include <cstddef>
 
 #include "typedefs.hpp"
 
@@ -20,7 +21,7 @@ namespace duck::impl {
  *
  * @note This is a low-level helper with no side effects.
  */
-inline bool is_power_of_2(USize n) noexcept { return n && ((n & (n - 1)) == 0); }
+inline bool is_pow2(USize n) noexcept { return n && ((n & (n - 1)) == 0); }
 
 /**
  * @brief Rounds a value up to the nearest power of two.
@@ -31,9 +32,9 @@ inline bool is_power_of_2(USize n) noexcept { return n && ((n & (n - 1)) == 0); 
  *
  * @note Uses `std::bit_width` from `<bit>` (C++20).
  */
-inline USize round_up_to_power_of_2(USize n) noexcept {
+inline USize round_up_pow2(USize n) noexcept {
     if (n == 0) return 1;
-    if (is_power_of_2(n)) return n;
+    if (is_pow2(n)) return n;
 
     return USize { 1 } << std::bit_width(n - 1);
 }
@@ -46,8 +47,16 @@ inline USize round_up_to_power_of_2(USize n) noexcept {
  *
  * @note This intentionally mirrors standard alignment requirements.
  */
-inline bool is_valid_alignment(USize alignment) noexcept {
-    return is_power_of_2(alignment);
+inline bool is_valid_alignment(USize alignment) noexcept { return is_pow2(alignment); }
+
+/**
+ * @brief Checks if an aligment value is overaligned.
+ *
+ * @param alignment The requested alignment in bytes.
+ * @return `true` if the alignment is overaligned.
+ */
+inline bool is_overaligned(USize alignment) noexcept {
+    return alignment >= sizeof(std::max_align_t);
 }
 
 /**
@@ -59,7 +68,7 @@ inline bool is_valid_alignment(USize alignment) noexcept {
  * @pre `alignment` must be a non-zero power of two (validated by caller).
  */
 inline USize normalize_alignment(USize alignment) noexcept {
-    assert(is_power_of_2(alignment));
+    assert(is_pow2(alignment));
     return std::max(alignof(void*), alignment);
 }
 
@@ -74,7 +83,7 @@ inline USize normalize_alignment(USize alignment) noexcept {
  * @note Uses bitmask arithmetic.
  */
 inline USize round_up_to_multiple_of(USize size, USize alignment) noexcept {
-    assert(is_power_of_2(alignment));
+    assert(is_pow2(alignment));
     return (size + alignment - 1) & ~(alignment - 1);
 }
 }  // namespace duck::impl

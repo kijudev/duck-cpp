@@ -1,27 +1,8 @@
-/**
- * @file allocator.hpp
- * @brief Allocator interface, OOM handling, and default allocator wiring.
- *
- * @details
- * Contracts and constraints:
- * - All sizes and alignments are expressed in bytes.
- * - Alignments must be powers of two.
- * - `try_allocate` / `try_reallocate` return `nullptr` on failure and never throw.
- * - `deallocate` is a no-op when given `nullptr`.
- * - `try_reallocate` preserves `min(old_size, new_size)` bytes and may move.
- * - OOM handling is opt-in: if no handler is installed, allocation failures
- *   return `nullptr` immediately.
- * - OOM handlers may request a retry. Retries are capped by `get_oom_retries()`.
- * - Implementations must be thread-safe with respect to their own internal state
- *   if shared across threads, but this interface does not impose a global lock.
- */
-
 #pragma once
 
 #include <algorithm>
 #include <atomic>
 #include <cassert>
-#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <new>
@@ -29,345 +10,253 @@
 #include "impl.hpp"
 #include "typedefs.hpp"
 
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
+
 namespace duck {
 
-/// @brief Result requested by an out-of-memory handler.
 enum class OOMHandlerAction : U8 { Fail, Retry };
 
-/**
- * @brief Function pointer signature for OOM handlers.
- *
- * @param size Allocation size in bytes.
- * @param alignment Alignment in bytes.
- * @return `Retry` to attempt allocation again, `Fail` to stop.
- *
- * @pre `size` is non-zero.
- * @pre `alignment` is a power of two.
- */
-using OOMHandler = OOMHandlerAction (*)(USize size, USize alignment) noexcept;
+using OOMHandler = OOMHandlerAction (*)(USize sz, USize alignment) noexcept;
 
 namespace impl {
-/// @brief Internal storage for the global OOM handler pointer.
 inline std::atomic<OOMHandler>& get_oom_handler_slot() noexcept {
     static std::atomic<OOMHandler> slot { nullptr };
     return slot;
 }
 
-/// @brief Internal storage for the global OOM retry count.
 inline std::atomic<U8>& get_oom_retries_slot() noexcept {
     static std::atomic<U8> slot { 2 };
     return slot;
 }
 }  // namespace impl
 
-/// @brief Returns the current global OOM handler (may be `nullptr`).
 inline OOMHandler get_oom_handler() noexcept {
     return impl::get_oom_handler_slot().load(std::memory_order_acquire);
 }
 
-/**
- * @brief Installs a new global OOM handler and returns the previous one.
- *
- * @param handler New handler function (may be `nullptr` to disable).
- */
 inline OOMHandler set_oom_handler(OOMHandler handler) noexcept {
     return impl::get_oom_handler_slot().exchange(handler, std::memory_order_acq_rel);
 }
 
-/// @brief Returns the maximum number of retries for OOM handling.
 inline U8 get_oom_retries() noexcept {
     return impl::get_oom_retries_slot().load(std::memory_order_acquire);
 }
 
-/**
- * @brief Sets the maximum number of retries for OOM handling.
- *
- * @param retries Maximum retry attempts after an OOM handler requests retry.
- */
 inline U8 set_oom_retries(U8 retries) noexcept {
     return impl::get_oom_retries_slot().exchange(retries, std::memory_order_acq_rel);
 }
 
-/**
- * @brief Abstract allocator interface with OOM retry behavior.
- *
- * @details
- * Implementations must provide `impl_try_allocate` and `impl_deallocate`.
- * The base class provides a default `impl_try_reallocate` that allocates,
- * copies, and frees.
- */
-class AllocatorI {
+enum class OwnershipResult : U8 {
+    Owns,
+    DoesNotOwn,
+    Unknown,
+};
+
+class Allocator {
    public:
-    /// @brief Virtual destructor for safe polymorphic deletion.
-    virtual ~AllocatorI() = default;
+    virtual ~Allocator() = default;
 
-    /**
-     * @brief Attempts to allocate a block of memory.
-     *
-     * @param size Size in bytes.
-     * @param alignment Alignment in bytes.
-     * @return Pointer to allocated memory, or `nullptr` on failure.
-     *
-     * @pre `size` is non-zero.
-     * @pre `alignment` is a power of two.
-     */
+    [[nodiscard("Discarding the pointer leads to memory leaks!")]] void* allocate(
+        USize sz, USize alignment) noexcept {
+        void* result = try_allocate(sz, alignment);
+
+        // @todo Implement custom macros.
+        if (!result) {
+            std::abort();
+        }
+
+        return result;
+    }
+
+    [[nodiscard("Discarding the pointer leads to memory leaks!")]] void* reallocate(
+        void* ptr, USize old_sz, USize new_sz, USize alignment) noexcept {
+        void* result = try_reallocate(ptr, old_sz, new_sz, alignment);
+
+        // @todo Implement custom macros.
+        if (!result) {
+            std::abort();
+        }
+
+        return result;
+    }
+
     [[nodiscard("Discarding the pointer leads to memory leaks!")]] void* try_allocate(
-        USize size, USize alignment) noexcept {
-        assert(size != 0);
+        USize sz, USize alignment) noexcept {
+        assert(sz != 0);
         assert(impl::is_valid_alignment(alignment));
-
-        if (size == 0) [[unlikely]] {
-            return nullptr;
-        }
-
-        if (!impl::is_valid_alignment(alignment)) [[unlikely]] {
-            return nullptr;
-        }
 
         U8 max_retries = get_oom_retries();
         for (U8 attempt = 0;; ++attempt) {
-            if (void* pointer = impl_try_allocate(size, alignment)) return pointer;
+            if (void* result = do_try_allocate(sz, alignment)) return result;
+            if (attempt >= max_retries) return nullptr;
 
-            OOMHandler allocation_error_handler = get_oom_handler();
-
-            if (allocation_error_handler == nullptr) return nullptr;
-            if (attempt > max_retries) return nullptr;
-            if (allocation_error_handler(size, alignment) != OOMHandlerAction::Retry)
-                return nullptr;
+            OOMHandler oom_handler = get_oom_handler();
+            if (oom_handler == nullptr) return nullptr;
+            if (oom_handler(sz, alignment) != OOMHandlerAction::Retry) return nullptr;
         }
     }
 
-    /**
-     * @brief Attempts to resize an existing allocation.
-     *
-     * @param pointer Original allocation.
-     * @param old_size Size of the original allocation in bytes.
-     * @param new_size Requested new size in bytes.
-     * @param alignment Alignment in bytes.
-     * @return Pointer to resized memory (may move), or `nullptr` on failure.
-     *
-     * @pre `pointer` is non-null.
-     * @pre `old_size` is non-zero.
-     * @pre `new_size` is non-zero.
-     * @pre `alignment` is a power of two.
-     */
     [[nodiscard("Discarding the pointer leads to memory leaks!")]] void* try_reallocate(
-        void* pointer, USize old_size, USize new_size, USize alignment) noexcept {
-        assert(pointer);
-        assert(old_size != 0);
-        assert(new_size != 0);
+        void* ptr, USize old_sz, USize new_sz, USize alignment) noexcept {
+        assert(ptr);
+        assert(old_sz != 0);
+        assert(new_sz != 0);
         assert(impl::is_valid_alignment(alignment));
-
-        if (!pointer) [[unlikely]] {
-            return nullptr;
-        }
-
-        if (old_size == 0) [[unlikely]] {
-            return nullptr;
-        }
-
-        if (new_size == 0) [[unlikely]] {
-            return nullptr;
-        }
-
-        if (!impl::is_valid_alignment(alignment)) [[unlikely]] {
-            return nullptr;
-        }
 
         U8 max_retries = get_oom_retries();
         for (U8 attempt = 0;; ++attempt) {
-            if (void* p = impl_try_reallocate(pointer, old_size, new_size, alignment)) {
-                return p;
+            if (void* result = do_try_reallocate(ptr, old_sz, new_sz, alignment)) {
+                return result;
             }
+            if (attempt >= max_retries) return nullptr;
 
-            OOMHandler allocation_error_handler = get_oom_handler();
-
-            if (allocation_error_handler == nullptr) return nullptr;
-            if (attempt > max_retries) return nullptr;
-            if (allocation_error_handler(new_size, alignment) != OOMHandlerAction::Retry)
-                return nullptr;
+            OOMHandler oom_handler = get_oom_handler();
+            if (oom_handler == nullptr) return nullptr;
+            if (oom_handler(new_sz, alignment) != OOMHandlerAction::Retry) return nullptr;
         }
     }
 
-    /**
-     * @brief Deallocates a previously allocated block.
-     *
-     * @param pointer Allocation to free.
-     * @param size Size of the allocation in bytes.
-     * @param alignment Alignment in bytes.
-     *
-     * @pre If `pointer` is non-null, `size` is non-zero.
-     * @pre If `pointer` is non-null, `alignment` is a power of two.
-     */
-    void deallocate(void* pointer, USize size, USize alignment) noexcept {
-        if (!pointer) return;
+    void deallocate(void* ptr, USize sz, USize alignment) noexcept {
+        if (!ptr) return;
 
-        assert(size != 0);
+        assert(sz != 0);
         assert(impl::is_valid_alignment(alignment));
 
-        if (size == 0) [[unlikely]] {
-            return;
-        }
-
-        if (!impl::is_valid_alignment(alignment)) [[unlikely]]
-            return;
-
-        impl_deallocate(pointer, size, alignment);
+        do_deallocate(ptr, sz, alignment);
     }
 
    protected:
-    /**
-     * @brief Implementation hook for allocation attempts.
-     *
-     * @param size Size in bytes.
-     * @param alignment Alignment in bytes.
-     * @return Pointer on success, or `nullptr` on failure.
-     *
-     * @pre `size` is non-zero.
-     * @pre `alignment` is a power of two.
-     */
-    virtual void* impl_try_allocate(USize size, USize alignment) noexcept = 0;
+    virtual void* do_try_allocate(USize sz, USize alignment) noexcept = 0;
 
-    /**
-     * @brief Implementation hook for reallocation attempts.
-     *
-     * @param pointer Original allocation.
-     * @param old_size Size of the original allocation in bytes.
-     * @param new_size Requested new size in bytes.
-     * @param alignment Alignment in bytes.
-     *
-     * @pre `pointer` is non-null.
-     * @pre `old_size` is non-zero.
-     * @pre `new_size` is non-zero.
-     * @pre `alignment` is a power of two.
-     *
-     * @details Default behavior allocates a new block, copies the data, and
-     * deallocates the old block.
-     */
-    virtual void* impl_try_reallocate(void* pointer, USize old_size, USize new_size,
-                                      USize alignment) noexcept {
-        void* new_pointer = impl_try_allocate(new_size, alignment);
+    virtual void* do_try_reallocate(void* ptr, USize old_sz, USize new_sz,
+                                    USize alignment) noexcept {
+        void* new_pointer = do_try_allocate(new_sz, alignment);
         if (!new_pointer) return nullptr;
 
         Byte* dst = static_cast<Byte*>(new_pointer);
-        Byte* src = static_cast<Byte*>(pointer);
-        USize n   = std::min(old_size, new_size);
+        Byte* src = static_cast<Byte*>(ptr);
+        USize n   = std::min(old_sz, new_sz);
 
         std::memcpy(dst, src, n);
-        deallocate(pointer, old_size, alignment);
+        do_deallocate(ptr, old_sz, alignment);
 
         return dst;
     }
 
-    /**
-     * @brief Implementation hook for deallocation.
-     *
-     * @param pointer Allocation to free.
-     * @param size Size in bytes.
-     * @param alignment Alignment in bytes.
-     *
-     * @pre `pointer` is non-null.
-     * @pre `size` is non-zero.
-     * @pre `alignment` is a power of two.
-     */
-    virtual void impl_deallocate(void* pointer, USize size, USize alignment) noexcept = 0;
+    virtual void do_deallocate(void* ptr, USize sz, USize alignment) noexcept = 0;
+
+    virtual OwnershipResult debug_owns(void* /*ptr*/) const noexcept {
+        return OwnershipResult::Unknown;
+    };
+
+    virtual const char* debug_name() const noexcept { return "UnnamedAllocator"; };
 };
 
-/// @brief Allocator that forwards to global `operator new/delete`.
-class NewDeleteAllocator final : public AllocatorI {
+class NewDeleteAllocator final : public Allocator {
    protected:
-    /// @brief Allocate via the global nothrow `operator new`.
-    void* impl_try_allocate(USize size, USize alignment) noexcept override {
-        if (alignment <= alignof(std::max_align_t)) [[likely]] {
-            return ::operator new(size, std::nothrow);
+    void* do_try_allocate(USize sz, USize alignment) noexcept override {
+        if (impl::is_overaligned(alignment)) [[unlikely]] {
+            return ::operator new(sz, std::align_val_t(alignment), std::nothrow);
         }
 
-        return ::operator new(size, std::align_val_t(alignment), std::nothrow);
+        return ::operator new(sz, std::nothrow);
     }
 
-    /// @brief Deallocate via the sized global `operator delete`.
-    void impl_deallocate(void* pointer, USize size, USize alignment) noexcept override {
-        if (alignment <= alignof(std::max_align_t)) [[likely]] {
-            ::operator delete(pointer, size);
+    void do_deallocate(void* ptr, USize sz, USize alignment) noexcept override {
+        // All overloads of `::operator delete` are noexcept by default.
+
+        if (impl::is_overaligned(alignment)) [[unlikely]] {
+            ::operator delete(ptr, sz, std::align_val_t(alignment));
         } else {
-            ::operator delete(pointer, size, std::align_val_t(alignment));
+            ::operator delete(ptr, sz);
         }
     }
+
+    OwnershipResult debug_owns(void* /*ptr*/) const noexcept override {
+        return OwnershipResult::Unknown;
+    }
+
+    const char* debug_name() const noexcept override { return "NewDeleteAllocator"; }
 };
 
-/// @brief Allocator that forwards to `malloc`/`free` with `realloc` optimization.
-class MallocAllocator final : public AllocatorI {
+class MallocAllocator final : public Allocator {
    protected:
-    /// @brief Allocate via `malloc` or `aligned_alloc` for over-aligned requests.
-    void* impl_try_allocate(USize size, USize alignment) noexcept override {
-        if (alignment <= alignof(std::max_align_t)) [[likely]] {
-            return std::malloc(size);
+    void* do_try_allocate(USize sz, USize alignment) noexcept override {
+        if (!impl::is_overaligned(alignment)) [[likely]] {
+            return std::malloc(sz);
         }
 
-        USize normalized   = impl::normalize_alignment(alignment);
-        USize aligned_size = impl::round_up_to_multiple_of(size, alignment);
-
-        return std::aligned_alloc(normalized, aligned_size);
-    }
-
-    /// @brief Reallocate via `realloc` when alignment allows it.
-    void* impl_try_reallocate(void* pointer, USize old_size, USize new_size,
-                              USize alignment) noexcept override {
-        if (alignment <= alignof(std::max_align_t)) [[likely]] {
-            (void)old_size;
-            return std::realloc(pointer, new_size);
+#if defined(_WIN32)
+        return _aligned_malloc(sz, alignment);
+#else
+        void* ptr = nullptr;
+        if (S32 result = ::posix_memalign(&ptr, static_cast<USize>(alignment),
+                                          static_cast<USize>(sz));
+            result != 0) {
+            return nullptr;
         }
 
-        return AllocatorI::impl_try_reallocate(pointer, old_size, new_size, alignment);
+        return ptr;
+#endif
     }
 
-    /// @brief Deallocate via `free`.
-    void impl_deallocate(void* pointer, USize size, USize alignment) noexcept override {
-        (void)size;
-        (void)alignment;
-        std::free(pointer);
+    void* do_try_reallocate(void* ptr, USize old_sz, USize new_sz,
+                            USize alignment) noexcept override {
+        if (!impl::is_overaligned(alignment)) [[likely]] {
+            return std::realloc(ptr, new_sz);
+        }
+
+#if defined(_WIN32)
+        return _aligned_realloc(ptr, new_sz, alignment);
+#else
+        return Allocator::do_try_reallocate(ptr, old_sz, new_sz, alignment);
+#endif
     }
+
+    void do_deallocate(void* ptr, USize /*size*/, USize alignment) noexcept override {
+        if (!impl::is_overaligned(alignment)) [[likely]] {
+            std::free(ptr);
+            return;
+        }
+
+#if defined(_WIN32)
+        _aligned_free(ptr);
+#else
+        std::free(ptr);  // posix_memalign memory is freed with regular free
+#endif
+    }
+
+    OwnershipResult debug_owns(void* /*ptr*/) const noexcept override {
+        return OwnershipResult::Unknown;
+    }
+
+    const char* debug_name() const noexcept override { return "MallocAllocator"; }
 };
 
-/// @brief Returns the singleton instance of the `NewDeleteAllocator`.
-inline AllocatorI* get_new_delete_allocator() noexcept {
-    static AllocatorI* pointer = [] {
-        return static_cast<AllocatorI*>(new NewDeleteAllocator {});
-    }();
-
-    return pointer;
+inline Allocator* get_new_delete_allocator() noexcept {
+    static NewDeleteAllocator a;
+    return &a;
 }
 
-/// @brief Returns the singleton instance of the `MallocAllocator`.
-inline AllocatorI* get_malloc_allocator() noexcept {
-    static AllocatorI* pointer = [] {
-        return static_cast<AllocatorI*>(new MallocAllocator {});
-    }();
-
-    return pointer;
+inline Allocator* get_malloc_allocator() noexcept {
+    static MallocAllocator a;
+    return &a;
 }
 
 namespace impl {
-/// @brief Internal storage for the global default allocator.
-inline std::atomic<AllocatorI*>& get_default_allocator_slot() noexcept {
-    static std::atomic<AllocatorI*> slot { get_new_delete_allocator() };
+inline std::atomic<Allocator*>& get_default_allocator_slot() noexcept {
+    static std::atomic<Allocator*> slot { get_new_delete_allocator() };
     return slot;
 }
 }  // namespace impl
 
-/// @brief Returns the current global default allocator.
-inline AllocatorI* get_default_allocator() noexcept {
+inline Allocator* get_default_allocator() noexcept {
     return impl::get_default_allocator_slot().load(std::memory_order_acquire);
 }
 
-/**
- * @brief Installs a new global default allocator and returns the previous one.
- *
- * @param allocator New allocator.
- *
- * @pre `allocator` is non-null.
- */
-inline AllocatorI* set_default_allocator(AllocatorI* allocator) noexcept {
+inline Allocator* set_default_allocator(Allocator* allocator) noexcept {
     assert(allocator);
     if (!allocator) return get_default_allocator();
 

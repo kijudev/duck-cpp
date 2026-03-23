@@ -3,7 +3,7 @@
 #include "allocator.hpp"
 
 int main() {
-    duck::AllocatorI* heap_alloc = duck::get_default_allocator();
+    duck::Allocator* heap_alloc = duck::get_default_allocator();
 
     int* a = static_cast<int*>(heap_alloc->try_allocate(sizeof(int), alignof(int)));
 

@@ -4,8 +4,11 @@
 
 namespace duck::traits {
 template <typename T>
-struct is_trivially_relocatable : std::false_type {};
+struct IsBitwiseRelocatableT : std::bool_constant<false> {};
 
 template <typename T>
-inline constexpr bool is_trivially_relocatable_v = is_trivially_relocatable<T>::value;
+inline constexpr bool IsBitwiseRelocatableV = IsBitwiseRelocatableT<T>::value;
+
+template <typename T>
+concept BitwiseRelocatable = IsBitwiseRelocatableV<T>;
 }  // namespace duck::traits

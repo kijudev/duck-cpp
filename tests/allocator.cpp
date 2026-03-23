@@ -33,7 +33,7 @@ bool matches_pattern(const Byte* pointer, USize size, Byte value) noexcept {
     return true;
 }
 
-void run_allocator_contracts(duck::AllocatorI& allocator, USize alignment) {
+void run_allocator_contracts(duck::Allocator& allocator, USize alignment) {
     // Base case: deallocating a null pointer must be a no-op.
     // Size 0 is allowed here because the implementation returns before asserting.
     CHECK_NOTHROW(allocator.deallocate(nullptr, 0, alignment));
