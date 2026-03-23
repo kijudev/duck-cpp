@@ -1,6 +1,6 @@
-#include <print>
-
 #include "../include/allocator.hpp"
+
+#include <print>
 
 int main() {
     duck::Allocator* alloc = duck::get_new_delete_allocator();
