@@ -176,11 +176,17 @@ class DynamicArray {
     T* data() noexcept { return m_storage.data; }
     const T* data() const noexcept { return m_storage.data; }
 
-    Slice<T> slice() const noexcept { return Slice<T>(m_storage.data, m_storage.size); }
-    Slice<T> slice(USize from, USize to) const noexcept { return slice().slice(from, to); }
+    Slice<T> slice() const& noexcept { return Slice<T>(m_storage.data, m_storage.size); }
+    Slice<T> slice() const&& noexcept = delete;
 
-    Slice<T> slice_from(USize from) const noexcept { return slice().slice_from(from); }
-    Slice<T> slice_to(USize to) const noexcept { return slice().slice_to(to); }
+    Slice<T> slice(USize from, USize to) const& noexcept { return slice().slice(from, to); }
+    Slice<T> slice(USize, USize) const&& = delete;
+
+    Slice<T> slice_from(USize from) const& noexcept { return slice().slice_from(from); }
+    Slice<T> slice_from(USize) const&& = delete;
+
+    Slice<T> slice_to(USize to) const& noexcept { return slice().slice_to(to); }
+    Slice<T> slice_to(USize) const&& = delete;
 
     // -------------------------------------------------------------------------
     // Capacity

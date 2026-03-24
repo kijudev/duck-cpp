@@ -72,12 +72,12 @@ class Slice {
         return Slice(m_data + from, to - from + 1);
     }
 
-    Slice from(USize from) const noexcept {
+    Slice slice_from(USize from) const noexcept {
         assert(from < m_size);
         return Slice(m_data + from, m_size - from);
     }
 
-    Slice to(USize to) const noexcept {
+    Slice slice_to(USize to) const noexcept {
         assert(to < m_size);
         return Slice(m_data, to + 1);
     }
